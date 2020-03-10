@@ -59,9 +59,12 @@ double predkoscPomiar[2];
 double beta[2] = {0.05, 0.05};
 int predkosc = 200; //predkosc poczatkowa 0-100
 double dpulse[2] = {200, 200};
+double integral[2] = {0, 0};
 int pulse[2] = {200, 200};
 int licznik;
 int blokada;
+double Kp = 0.7;
+double Ki = 0.01;
 
 extern uint8_t znak;
 extern uint32_t adcVal[6];
@@ -188,7 +191,7 @@ void StartDefaultTask(void const * argument)
   for(;;)
   {
 	  HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-    osDelay(1000);
+    osDelay(500);
   }
   /* USER CODE END StartDefaultTask */
 }
@@ -220,29 +223,29 @@ void StartBtRead(void const * argument)
 		  doPrzodu();
 		  drDir = 'f';
 		  dl_tekst = sprintf(tekst, "Do przodu!\n");
-		  dpulse[0] = predkosc;
-		  dpulse[1] = predkosc;
+		  //dpulse[0] = predkosc;
+		  //dpulse[1] = predkosc;
 		  break;
 	  case 'b':
 		  doTylu();
 		  drDir = 'b';
 		  dl_tekst = sprintf(tekst, "Do tylu!\n");
-		  dpulse[0] = predkosc;
-		  dpulse[1] = predkosc;
+		  //dpulse[0] = predkosc;
+		  //dpulse[1] = predkosc;
 		  break;
 	  case 'l':
 		  wLewo();
 		  drDir = 'l';
 		  dl_tekst = sprintf(tekst, "W lewo!\n");
-		  dpulse[0] = predkosc;
-		  dpulse[1] = predkosc;
+		  //dpulse[0] = predkosc;
+		  //dpulse[1] = predkosc;
 		  break;
 	  case 'r':
 		  wPrawo();
 		  drDir = 'r';
 		  dl_tekst = sprintf(tekst, "W prawo!\n");
-		  dpulse[0] = predkosc;
-		  dpulse[1] = predkosc;
+		  //dpulse[0] = predkosc;
+		  //dpulse[1] = predkosc;
 		  break;
 	  case 's':
 		  stoj();
@@ -256,8 +259,8 @@ void StartBtRead(void const * argument)
 			  break;
 		  }
 		  predkosc += 50;
-		  dpulse[0] = predkosc;
-		  dpulse[1] = predkosc;
+		  //dpulse[0] = predkosc;
+		  //dpulse[1] = predkosc;
 		  dl_tekst = sprintf(tekst, "Predkosc zwiekszona do %d %!\n", predkosc);
 		  break;
 	  case 'p':
@@ -267,8 +270,8 @@ void StartBtRead(void const * argument)
 			  break;
 		  }
 		  predkosc -= 50;
-		  dpulse[0] = predkosc;
-		  dpulse[1] = predkosc;
+		  //dpulse[0] = predkosc;
+		  //dpulse[1] = predkosc;
 		  dl_tekst = sprintf(tekst, "Predkosc zmniejszona do %d %!\n", predkosc);
 		  break;
 	  case 'x':
@@ -306,21 +309,33 @@ void StartMotorControl(void const * argument)
 
 	  natezenie[0] = adcAvgVal[4]*0.0008059;
 	  natezenie[1] = adcAvgVal[5]*0.0008059;
-	  predkoscPomiar[0]=(napiecie[0]-natezenie[0]*oporWew[0])/beta[0];
+	  predkoscPomiar[0]=0.95*(napiecie[0]-natezenie[0]*oporWew[0])/beta[0];
 	  predkoscPomiar[1]=(napiecie[1]-natezenie[1]*oporWew[1])/beta[1];
 	  if(predkoscPomiar[0] < 0) predkoscPomiar[0] = 0;
 	  if(predkoscPomiar[1] < 0) predkoscPomiar[1] = 0;
-		  dpulse[0]+=((predkosc-predkoscPomiar[0])/predkosc*0.06);
-		  dpulse[1]+=((predkosc-predkoscPomiar[1])/predkosc*0.06);
+		  integral[0]+=((predkosc-predkoscPomiar[0]) * Ki);
+		  integral[1]+=((predkosc-predkoscPomiar[1]) * Ki);
+		  if(drDir == 's'){
+			  integral[0] = 0;
+			  integral[1] = 0;
+		  }
+		  dpulse[0] = integral[0] + Kp * (predkosc-predkoscPomiar[0]);
+		  dpulse[1] = integral[1] + Kp * (predkosc-predkoscPomiar[1]);
 		  //pulse[0] = (int) dpulse[0];
 		  //pulse[1] = (int) dpulse[1];
-		  if(dpulse[0]>1000) dpulse[0]=1000;
-		  if(dpulse[1]>1000) dpulse[1]=1000;
+		  if(dpulse[0]>1000){
+			  dpulse[0]=1000;
+			  integral[0]-=((predkosc-predkoscPomiar[0]) * Ki);
+		  }
+		  if(dpulse[1]>1000){
+			  dpulse[1]=1000;
+			  integral[1]-=((predkosc-predkoscPomiar[1]) * Ki);
+		  }
 		  if(dpulse[0]<0) dpulse[0]=0;
 		  if(dpulse[1]<0) dpulse[1]=0;
 		  htim1.Instance->CCR1 = dpulse[0];
 		  htim1.Instance->CCR2 = dpulse[1];
-		  osDelay(3); //bylo git przy 10
+		  osDelay(10); //bylo git przy 10
 
 
 	  if(licznik == 500){
@@ -337,7 +352,7 @@ void StartMotorControl(void const * argument)
 	  else{
 		  blokada = 0;
 	  }
-	  if(blokada == 500){
+	  if(blokada == 100){
 		  dl_tekst = sprintf(tekst, "Wykryto przeszkode!\n");
 		  HAL_UART_Transmit_IT(&huart1, tekst, dl_tekst);
 		  dpulse[0] = 300;
@@ -359,10 +374,10 @@ void StartMotorControl(void const * argument)
 			  wLewo();
 			  break;
 		  }
-		  HAL_Delay(600);
+		  HAL_Delay(700);
 		  stoj();
 		  wLewo();
-		  HAL_Delay(600);
+		  HAL_Delay(800);
 		  switch(drDir){
 		  case 'f':
 			  doPrzodu();
@@ -372,8 +387,8 @@ void StartMotorControl(void const * argument)
 			  break;
 		  }
 		  blokada = 0;
-		  dpulse[0] = predkosc;
-		  dpulse[1] = predkosc;
+		  integral[0] = 0;
+		  integral[1] = 0;
 		  HAL_Delay(200);
 
 	  }
@@ -397,8 +412,12 @@ void StartAdcAvgVal(void const * argument)
   for(;;)
   {
 	  osSemaphoreWait(bSem2Handle, osWaitForever);
-	  for(int i = 0; i < 6; i++){
-		  adcAvgVal[i]=adcAvgVal[i]*0.999+adcVal[i]*0.001; //uśrednianie
+	  for(int i = 0; i < 4; i++){
+		  adcAvgVal[i]=adcAvgVal[i]*0.9+adcVal[i]*0.1; //uśrednianie
+
+	  }
+	  for(int i = 4; i < 6; i++){
+		  adcAvgVal[i]=adcAvgVal[i]*0.99+adcVal[i]*0.01; //uśrednianie
 
 	  }
     //osDelay(1); //czy potrzeba? ma dzialac szybko
@@ -416,8 +435,8 @@ void pomiarBeta(){
 	 HAL_GPIO_WritePin(RB_GPIO_Port, RB_Pin, GPIO_PIN_RESET);
 	 HAL_GPIO_WritePin(LB_GPIO_Port, LB_Pin, GPIO_PIN_RESET);
 
-	 htim1.Instance->CCR1 = 1000;
-	 htim1.Instance->CCR2 = 1000;
+	 htim1.Instance->CCR1 = 700;
+	 htim1.Instance->CCR2 = 700;
 
 
 	 osDelay(3000);
